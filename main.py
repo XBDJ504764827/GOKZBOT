@@ -13,7 +13,7 @@ class GOKZPlugin(Star):
     @filter.command("bind")
     async def bind(self, event: AstrMessageEvent):
         """绑定你的steamid，例如 /bind steamid"""
-        args = event.message_str.split()
+        args = event.get_command_args()
         if len(args) != 1:
             yield event.plain_result("用法: /bind <steamid>")
             return
