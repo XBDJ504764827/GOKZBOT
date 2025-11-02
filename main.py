@@ -2,7 +2,7 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from .database import get_db_session, User
 
-@register("gokz", "Gemini", "一个用于查询GOKZ服务器信息的插件", "1.0.0")
+@register("GOKZBOT", "ShaWuXBDJ", "kz数据查询", "1.0.0")
 class GOKZPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
