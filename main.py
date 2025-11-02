@@ -1,3 +1,4 @@
+import os
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from .database import get_db_session, User
@@ -6,7 +7,8 @@ from .database import get_db_session, User
 class GOKZPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
-        self.db_session = get_db_session(self.context.get_plugin_data_dir())
+        data_dir = os.path.join("data", "plugins", "GOKZBOT")
+        self.db_session = get_db_session(data_dir)
 
     @filter.command("bind")
     async def bind(self, event: AstrMessageEvent):
