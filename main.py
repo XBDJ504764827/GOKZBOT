@@ -19,7 +19,7 @@ class GOKZPlugin(Star):
             return
 
         steam_id = args[0]
-        qq_id = str(event.user_id)
+        qq_id = str(event.sender['user_id'])
 
         user = self.db_session.query(User).filter_by(qq_id=qq_id).first()
         if user:
