@@ -1,7 +1,46 @@
 import os
+import aiohttp
+from bs4 import BeautifulSoup
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from .database import get_db_session, User
+
+
+async def get_steam_info(steam_id_input: str) -> dict | None:
+    """根据输入的steamid，从steamid.io获取信息"""
+    url = f"https://steamid.io/lookup/{steam_id_input}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                if response.status != 200:
+                    return None
+                html = await response.text()
+                soup = BeautifulSoup(html, "html.parser")
+                
+                steam_id_64 = None
+                steam_name = None
+
+                # steamid.io 网页结构为 <dt>key</dt><dd>value</dd>
+                # 查找 steamID64
+                dt_steamid64 = soup.find('dt', string='steamID64')
+                if dt_steamid64:
+                    dd_steamid64 = dt_steamid64.find_next_sibling('dd')
+                    if dd_steamid64:
+                        # dd 标签内的文本是 "copy to clipboard 7656..."
+                        steam_id_64 = dd_steamid64.text.strip().split()[-1]
+                
+                # 查找 name
+                dt_name = soup.find('dt', string='name')
+                if dt_name:
+                    dd_name = dt_name.find_next_sibling('dd')
+                    if dd_name:
+                        steam_name = dd_name.text.strip()
+
+                if steam_id_64 and steam_name:
+                    return {"steam_id_64": steam_id_64, "name": steam_name}
+                return None
+    except Exception:
+        return None
 
 
 @register("GOKZBOT", "ShaWuXBDJ", "kz数据查询", "1.0.0")
@@ -13,23 +52,55 @@ class GOKZPlugin(Star):
 
     @filter.command("bind")
     async def bind(self, event: AstrMessageEvent):
-        """绑定你的steamid，例如 /bind steamid"""
+        """绑定你的steamid，例如 /bind STEAM_0:0:123456"""
         args = event.message_str.split()[1:]
         if len(args) != 1:
             yield event.plain_result("用法: /bind <steamid>")
             return
 
-        steam_id = args[0]
+        steam_id_input = args[0]
+        
+        # 提示用户正在查询
+        yield event.plain_result(f"正在查询 SteamID '{steam_id_input}'...")
+
+        info = await get_steam_info(steam_id_input)
+
+        if not info:
+            yield event.plain_result(f"无法找到 SteamID '{steam_id_input}' 的信息，请检查输入是否正确。")
+            return
+        
+        steam_id_64 = info["steam_id_64"]
+        steam_name = info["name"]
         qq_id = str(event.get_sender_id())
 
         user = self.db_session.query(User).filter_by(qq_id=qq_id).first()
         if user:
-            user.steam_id = steam_id
-            msg = f"你的 SteamID 已更新为: {steam_id}"
+            user.steam_id_64 = steam_id_64
+            user.steam_name = steam_name
+            msg = f"你的 Steam 账户已更新为: {steam_name} ({steam_id_64})"
         else:
-            new_user = User(qq_id=qq_id, steam_id=steam_id)
+            new_user = User(qq_id=qq_id, steam_id_64=steam_id_64, steam_name=steam_name)
             self.db_session.add(new_user)
-            msg = f"成功绑定 SteamID: {steam_id}"
+            msg = f"成功绑定 Steam 账户: {steam_name} ({steam_id_64})"
 
         self.db_session.commit()
+        yield event.plain_result(msg)
+
+    @filter.command("info")
+    async def info(self, event: AstrMessageEvent):
+        """查询你绑定的Steam账户信息"""
+        qq_id = str(event.get_sender_id())
+        user = self.db_session.query(User).filter_by(qq_id=qq_id).first()
+
+        if not user:
+            yield event.plain_result("你还没有绑定 SteamID。请使用 /bind <steamid> 进行绑定。")
+            return
+        
+        bind_time = user.created_at.strftime("%Y-%m-%d %H:%M:%S")
+        
+        msg = (
+            f"Steam 名称: {user.steam_name}\n"
+            f"SteamID64: {user.steam_id_64}\n"
+            f"绑定时间: {bind_time}"
+        )
         yield event.plain_result(msg)
