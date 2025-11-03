@@ -1,4 +1,5 @@
 import os
+import re
 import aiohttp
 from bs4 import BeautifulSoup
 from astrbot.api.event import filter, AstrMessageEvent
@@ -47,44 +48,62 @@ async def get_steam_info(steam_id_input: str) -> dict | None:
 class GOKZPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
-        data_dir = os.path.join("data", "plugins", "GOKZBOT")
-        self.db_session = get_db_session(data_dir)
+        self.db_session = get_db_session()
 
     @filter.command("bind")
     async def bind(self, event: AstrMessageEvent):
-        """绑定你的steamid，例如 /bind STEAM_0:0:123456"""
+        """绑定你的steamid，例如 /bind <id> 或 /bind <id> -u vnl"""
         args = event.message_str.split()[1:]
-        if len(args) != 1:
-            yield event.plain_result("用法: /bind <steamid>")
+        
+        if not args:
+            yield event.plain_result("用法: /bind <steamid> [-u <模式>]")
             return
 
         steam_id_input = args[0]
-        
-        # 提示用户正在查询
-        yield event.plain_result(f"正在查询 SteamID '{steam_id_input}'...")
+        mode = "kzt"
+        valid_modes = ["kzt", "skz", "vnl"]
 
+        # 解析 -u 参数
+        if "-u" in args:
+            try:
+                mode_index = args.index("-u") + 1
+                if mode_index < len(args) and args[mode_index] in valid_modes:
+                    mode = args[mode_index]
+                else:
+                    yield event.plain_result(f"无效的模式。可用模式: {', '.join(valid_modes)}")
+                    return
+            except (ValueError, IndexError):
+                yield event.plain_result("-u 参数使用错误。用法: /bind <steamid> -u <模式>")
+                return
+
+        qq_id = str(event.get_sender_id())
+        existing_user = self.db_session.query(User).filter_by(qq_id=qq_id).first()
+
+        if existing_user:
+            yield event.plain_result(f"您已经绑定过 Steam 账户: {existing_user.steam_name} ({existing_user.steam_id_64})")
+            return
+
+        yield event.plain_result(f"正在查询 SteamID '{steam_id_input}'...")
         info = await get_steam_info(steam_id_input)
 
         if not info:
-            yield event.plain_result(f"无法找到 SteamID '{steam_id_input}' 的信息，请检查输入是否正确。")
+            yield event.plain_result(f"无法找到 SteamID '{steam_id_input}' 的信息，请检查输入。")
             return
         
         steam_id_64 = info["steam_id_64"]
         steam_name = info["name"]
-        qq_id = str(event.get_sender_id())
+        
+        # 检查此 SteamID 是否已被其他人绑定
+        steam_id_bound = self.db_session.query(User).filter_by(steam_id_64=steam_id_64).first()
+        if steam_id_bound:
+            yield event.plain_result(f"此 Steam 账户已被其他用户绑定。")
+            return
 
-        user = self.db_session.query(User).filter_by(qq_id=qq_id).first()
-        if user:
-            user.steam_id_64 = steam_id_64
-            user.steam_name = steam_name
-            msg = f"你的 Steam 账户已更新为: {steam_name} ({steam_id_64})"
-        else:
-            new_user = User(qq_id=qq_id, steam_id_64=steam_id_64, steam_name=steam_name)
-            self.db_session.add(new_user)
-            msg = f"成功绑定 Steam 账户: {steam_name} ({steam_id_64})"
-
+        new_user = User(qq_id=qq_id, steam_id_64=steam_id_64, steam_name=steam_name, default_mode=mode)
+        self.db_session.add(new_user)
         self.db_session.commit()
-        yield event.plain_result(msg)
+        
+        yield event.plain_result(f"成功绑定 Steam 账户: {steam_name} ({steam_id_64})，默认查询模式: {mode.upper()}")
 
     @filter.command("info")
     async def info(self, event: AstrMessageEvent):
@@ -101,6 +120,7 @@ class GOKZPlugin(Star):
         msg = (
             f"Steam 名称: {user.steam_name}\n"
             f"SteamID64: {user.steam_id_64}\n"
+            f"默认模式: {user.default_mode.upper()}\n"
             f"绑定时间: {bind_time}"
         )
         yield event.plain_result(msg)
