@@ -1,5 +1,4 @@
 import aiohttp
-import inspect
 from bs4 import BeautifulSoup
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
@@ -53,29 +52,32 @@ class GOKZPlugin(Star):
     async def bind(
         self,
         event: AstrMessageEvent,
-        args,
-        kwargs,
-        *extra_args,
-        **extra_kwargs,
+        args=None,
+        kwargs=None,
+        extra_args=None,
+        extra_kwargs=None,
     ):
         """绑定你的steamid，例如 /bind <id> 或 /bind <id> -u vnl"""
-        if args in (None, inspect._empty):
+        cmd_args = []
+        # Consolidate args
+        if args is not None:
+            if isinstance(args, (list, tuple)):
+                cmd_args.extend(args)
+            else:
+                cmd_args.append(args)
+
+        # Consolidate extra_args
+        if extra_args is not None:
+            if isinstance(extra_args, (list, tuple)):
+                cmd_args.extend(extra_args)
+            else:
+                cmd_args.append(extra_args)
+
+        # Fallback to message_str if no args were passed via parameters
+        if not cmd_args:
             cmd_args = event.message_str.split()[1:]
-        elif isinstance(args, (list, tuple)):
-            cmd_args = list(args)
-        else:
-            cmd_args = [args]
 
-        if extra_args:
-            for item in extra_args:
-                if item in (None, inspect._empty):
-                    continue
-                if isinstance(item, (list, tuple)):
-                    cmd_args.extend(item)
-                else:
-                    cmd_args.append(item)
-
-        if kwargs in (None, inspect._empty):
+        if kwargs is None:
             kwargs = {}
 
         if not cmd_args:
@@ -144,13 +146,13 @@ class GOKZPlugin(Star):
     async def unbind(
         self,
         event: AstrMessageEvent,
-        args,
-        kwargs,
-        *extra_args,
-        **extra_kwargs,
+        args=None,
+        kwargs=None,
+        extra_args=None,
+        extra_kwargs=None,
     ):
         """解除当前绑定的 SteamID"""
-        if kwargs in (None, inspect._empty):
+        if kwargs is None:
             kwargs = {}
 
         qq_id = str(event.get_sender_id())
@@ -177,14 +179,14 @@ class GOKZPlugin(Star):
     async def info(
         self,
         event: AstrMessageEvent,
-        args,
-        kwargs,
-        *extra_args,
-        **extra_kwargs,
+        args=None,
+        kwargs=None,
+        extra_args=None,
+        extra_kwargs=None,
     ):
         """查询你绑定的Steam账户信息"""
         qq_id = str(event.get_sender_id())
-        if kwargs in (None, inspect._empty):
+        if kwargs is None:
             kwargs = {}
  
         with get_db_session() as db_session:
