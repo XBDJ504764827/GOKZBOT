@@ -1,6 +1,7 @@
 import aiohttp
 from bs4 import BeautifulSoup
 from collections import Counter
+import base64
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from .database import get_db_session, User, init_db, VnlMapTier
@@ -313,4 +314,6 @@ class GOKZPlugin(Star):
             yield event.plain_result("生成玩家数据图时出错。")
             return
 
-        yield event.image_result(image_bytes)
+        b64_string = base64.b64encode(image_bytes).decode('utf-8')
+        data_uri = f"data:image/png;base64,{b64_string}"
+        yield event.image_result(data_uri)

@@ -3,3 +3,4 @@ beautifulsoup4
 SQLAlchemy
 psycopg2
 Pillow
+lxml
