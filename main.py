@@ -1,4 +1,5 @@
 import aiohttp
+import inspect
 from bs4 import BeautifulSoup
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
@@ -49,9 +50,27 @@ class GOKZPlugin(Star):
         init_db()
 
     @filter.command("bind")
-    async def bind(self, event: AstrMessageEvent, *args, **kwargs):
+    async def bind(
+        self,
+        event: AstrMessageEvent,
+        args=None,
+        kwargs=None,
+        *extra_args,
+        **extra_kwargs,
+    ):
         """绑定你的steamid，例如 /bind <id> 或 /bind <id> -u vnl"""
-        cmd_args = event.message_str.split()[1:]
+        if args in (None, inspect._empty):
+            cmd_args = event.message_str.split()[1:]
+        elif isinstance(args, (list, tuple)):
+            cmd_args = list(args)
+        else:
+            cmd_args = [args]
+
+        if extra_args:
+            cmd_args.extend(extra_args)
+
+        if kwargs in (None, inspect._empty):
+            kwargs = {}
         
         if not cmd_args:
             yield event.plain_result("用法: /bind <steamid> [-u <模式>]")
@@ -104,9 +123,18 @@ class GOKZPlugin(Star):
             yield event.plain_result(f"成功绑定 Steam 账户: {steam_name} ({steam_id_64})，默认查询模式: {mode.upper()}")
 
     @filter.command("info")
-    async def info(self, event: AstrMessageEvent, *args, **kwargs):
+    async def info(
+        self,
+        event: AstrMessageEvent,
+        args=None,
+        kwargs=None,
+        *extra_args,
+        **extra_kwargs,
+    ):
         """查询你绑定的Steam账户信息"""
         qq_id = str(event.get_sender_id())
+        if kwargs in (None, inspect._empty):
+            kwargs = {}
         with get_db_session() as db_session:
             user = db_session.query(User).filter_by(qq_id=qq_id).first()
 
