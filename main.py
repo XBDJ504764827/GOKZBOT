@@ -178,7 +178,7 @@ class GOKZPlugin(Star):
         extra_args=None,
         extra_kwargs=None,
     ):
-        """解除当前绑定的 SteamID"""
+        """解除当前绑定的 SteamID 并删除用户数据"""
         if kwargs is None:
             kwargs = {}
 
@@ -194,13 +194,11 @@ class GOKZPlugin(Star):
             previous_name = user.steam_name
             previous_steam_id64 = user.steam_id_64
 
-            user.steam_id = None
-            user.steam_id_64 = None
-            user.default_mode = None
+            db_session.delete(user)
             db_session.commit()
 
             yield event.plain_result(
-                f"已解除 Steam 账户绑定: {previous_name} ({previous_steam_id64})。您可以使用 /bind 重新绑定。"
+                f"已成功删除 Steam 账户绑定: {previous_name} ({previous_steam_id64})。"
             )
 
     @filter.command("info")
