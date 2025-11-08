@@ -53,8 +53,8 @@ class GOKZPlugin(Star):
     async def bind(
         self,
         event: AstrMessageEvent,
-        args=None,
-        kwargs=None,
+        args,
+        kwargs,
         *extra_args,
         **extra_kwargs,
     ):
@@ -67,7 +67,13 @@ class GOKZPlugin(Star):
             cmd_args = [args]
 
         if extra_args:
-            cmd_args.extend(extra_args)
+            for item in extra_args:
+                if item in (None, inspect._empty):
+                    continue
+                if isinstance(item, (list, tuple)):
+                    cmd_args.extend(item)
+                else:
+                    cmd_args.append(item)
 
         if kwargs in (None, inspect._empty):
             kwargs = {}
@@ -138,8 +144,8 @@ class GOKZPlugin(Star):
     async def unbind(
         self,
         event: AstrMessageEvent,
-        args=None,
-        kwargs=None,
+        args,
+        kwargs,
         *extra_args,
         **extra_kwargs,
     ):
@@ -171,8 +177,8 @@ class GOKZPlugin(Star):
     async def info(
         self,
         event: AstrMessageEvent,
-        args=None,
-        kwargs=None,
+        args,
+        kwargs,
         *extra_args,
         **extra_kwargs,
     ):
