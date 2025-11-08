@@ -315,5 +315,6 @@ class GOKZPlugin(Star):
             return
 
         b64_string = base64.b64encode(image_bytes).decode('utf-8')
-        data_uri = f"data:image/png;base64,{b64_string}"
+        # Use base64:// scheme which is more common for CQcode-style bots
+        data_uri = f"base64://{b64_string}"
         yield event.image_result(data_uri)
