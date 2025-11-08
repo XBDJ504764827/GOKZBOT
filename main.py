@@ -42,6 +42,28 @@ async def get_steam_info(steam_id_input: str) -> dict | None:
         return None
 
 
+def parse_bind_args(cmd_args: list) -> tuple[str | None, str, str | None]:
+    """解析绑定命令的参数"""
+    if not cmd_args:
+        return None, "kzt", "用法: /bind <steamid> [-u <模式>]"
+
+    steam_id_input = cmd_args[0]
+    mode = "kzt"
+    valid_modes = ["kzt", "skz", "vnl"]
+
+    if "-u" in cmd_args:
+        try:
+            mode_index = cmd_args.index("-u") + 1
+            if mode_index < len(cmd_args) and cmd_args[mode_index] in valid_modes:
+                mode = cmd_args[mode_index]
+            else:
+                return None, "", f"无效的模式。可用模式: {', '.join(valid_modes)}"
+        except (ValueError, IndexError):
+            return None, "", "-u 参数使用错误。用法: /bind <steamid> -u <模式>"
+
+    return steam_id_input, mode, None
+
+
 @register("GOKZBOT", "ShaWuXBDJ", "kz数据查询", "1.0.4")
 class GOKZPlugin(Star):
     def __init__(self, context: Context):
@@ -77,29 +99,11 @@ class GOKZPlugin(Star):
         if not cmd_args:
             cmd_args = event.message_str.split()[1:]
 
-        if kwargs is None:
-            kwargs = {}
+        steam_id_input, mode, error_msg = parse_bind_args(cmd_args)
 
-        if not cmd_args:
-            yield event.plain_result("用法: /bind <steamid> [-u <模式>]")
+        if error_msg:
+            yield event.plain_result(error_msg)
             return
-
-        steam_id_input = cmd_args[0]
-        mode = "kzt"
-        valid_modes = ["kzt", "skz", "vnl"]
-
-        # 解析 -u 参数
-        if "-u" in cmd_args:
-            try:
-                mode_index = cmd_args.index("-u") + 1
-                if mode_index < len(cmd_args) and cmd_args[mode_index] in valid_modes:
-                    mode = cmd_args[mode_index]
-                else:
-                    yield event.plain_result(f"无效的模式。可用模式: {', '.join(valid_modes)}")
-                    return
-            except (ValueError, IndexError):
-                yield event.plain_result("-u 参数使用错误。用法: /bind <steamid> -u <模式>")
-                return
 
         qq_id = str(event.get_sender_id())
         with get_db_session() as db_session:
