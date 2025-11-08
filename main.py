@@ -1,8 +1,9 @@
 import aiohttp
 from bs4 import BeautifulSoup
+from collections import Counter
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
-from .database import get_db_session, User, init_db
+from .database import get_db_session, User, init_db, VnlMapTier
 from .kz_stats import get_kzgo_stats, get_vnl_stats, create_stats_image
 
 
@@ -287,6 +288,15 @@ class GOKZPlugin(Star):
             stats = await get_kzgo_stats(steam_id, mode)
         elif mode == "vnl":
             stats = await get_vnl_stats(steam_id64)
+            if stats:
+                map_ids = stats.get("map_ids", [])
+                if map_ids:
+                    # Query the database for tiers
+                    tiers = db_session.query(VnlMapTier.tptier).filter(VnlMapTier.id.in_(map_ids)).all()
+                    if tiers:
+                        tier_counts = Counter(tier[0] for tier in tiers)
+                        stats["tier_counts"] = dict(sorted(tier_counts.items()))
+
         else:
             valid_modes = ["kzt", "skz", "vnl"]
             yield event.plain_result(f"无效的模式。可用模式: {', '.join(valid_modes)}")

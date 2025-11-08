@@ -64,6 +64,10 @@
         - vnl模式用户使用 https://vnl.kz/ 网站，例如查询玩家steamid64为76561199067723921的玩家使用链接https://vnl.kz/#/stats/76561199067723921 
         - 使用/kz命令之后代码查询到玩家kz数据进行绘画，以图片形式显示玩家数据例如Screenshot_2025-11-02-23-59-40-85_9d26c6446fd7bb8.jpg该图片样式，其中有玩家头像，玩家等级，玩家名称，玩家数据。
 
+    2. vnl中使用https://kztimerglobal.com/api/v2.0/records/top?steamid64=76561199295538824&stage=0&modes_list_string=kz_vanilla&limit=10000&has_teleports=true 的链接进行查询steamid64为76561199295538824的玩家，该链接中能够获取玩家完成tp地图的分数，玩家的总分是该链接数据中每个地图的points全部想加，链接每块数据中的points是完成该地图分数，map_id是地图的标识，将map_id与数据库qqbot中的表vnlmaptier中的id对比出当前地图的tptier等级，用作后面绘制/kz的图片.
+
+
+
 ### 4.1. 查询玩家最近kz数据 (`/pb`) - [待开发]
 
 - **指令:** `/pb` 或 `/pb @某人`
