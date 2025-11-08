@@ -49,24 +49,24 @@ class GOKZPlugin(Star):
         init_db()
 
     @filter.command("bind")
-    async def bind(self, event: AstrMessageEvent, *args):
+    async def bind(self, event: AstrMessageEvent, *args, **kwargs):
         """绑定你的steamid，例如 /bind <id> 或 /bind <id> -u vnl"""
-        args = event.message_str.split()[1:]
+        cmd_args = event.message_str.split()[1:]
         
-        if not args:
+        if not cmd_args:
             yield event.plain_result("用法: /bind <steamid> [-u <模式>]")
             return
 
-        steam_id_input = args[0]
+        steam_id_input = cmd_args[0]
         mode = "kzt"
         valid_modes = ["kzt", "skz", "vnl"]
 
         # 解析 -u 参数
-        if "-u" in args:
+        if "-u" in cmd_args:
             try:
-                mode_index = args.index("-u") + 1
-                if mode_index < len(args) and args[mode_index] in valid_modes:
-                    mode = args[mode_index]
+                mode_index = cmd_args.index("-u") + 1
+                if mode_index < len(cmd_args) and cmd_args[mode_index] in valid_modes:
+                    mode = cmd_args[mode_index]
                 else:
                     yield event.plain_result(f"无效的模式。可用模式: {', '.join(valid_modes)}")
                     return
@@ -104,7 +104,7 @@ class GOKZPlugin(Star):
             yield event.plain_result(f"成功绑定 Steam 账户: {steam_name} ({steam_id_64})，默认查询模式: {mode.upper()}")
 
     @filter.command("info")
-    async def info(self, event: AstrMessageEvent, *args):
+    async def info(self, event: AstrMessageEvent, *args, **kwargs):
         """查询你绑定的Steam账户信息"""
         qq_id = str(event.get_sender_id())
         with get_db_session() as db_session:
