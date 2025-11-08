@@ -43,7 +43,7 @@ async def get_steam_info(steam_id_input: str) -> dict | None:
         return None
 
 
-@register("GOKZBOT", "ShaWuXBDJ", "kz数据查询", "1.0.3")
+@register("GOKZBOT", "ShaWuXBDJ", "kz数据查询", "1.0.4")
 class GOKZPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -71,7 +71,7 @@ class GOKZPlugin(Star):
 
         if kwargs in (None, inspect._empty):
             kwargs = {}
-        
+
         if not cmd_args:
             yield event.plain_result("用法: /bind <steamid> [-u <模式>]")
             return
@@ -97,7 +97,7 @@ class GOKZPlugin(Star):
         with get_db_session() as db_session:
             existing_user = db_session.query(User).filter_by(qq_id=qq_id).first()
 
-            if existing_user:
+            if existing_user and existing_user.steam_id_64:
                 yield event.plain_result(f"您已经绑定过 Steam 账户: {existing_user.steam_name} ({existing_user.steam_id_64})")
                 return
 
@@ -111,16 +111,61 @@ class GOKZPlugin(Star):
             steam_name = info["name"]
             
             # 检查此 SteamID 是否已被其他人绑定
-            steam_id_bound = db_session.query(User).filter_by(steam_id_64=steam_id_64).first()
+            steam_id_bound = (
+                db_session.query(User)
+                .filter(User.steam_id_64 == steam_id_64, User.qq_id != qq_id)
+                .first()
+            )
             if steam_id_bound:
                 yield event.plain_result(f"此 Steam 账户已被其他用户绑定。")
                 return
 
-            new_user = User(qq_id=qq_id, steam_id=steam_id_input, steam_id_64=steam_id_64, steam_name=steam_name, default_mode=mode)
-            db_session.add(new_user)
+            if existing_user:
+                user_record = existing_user
+            else:
+                user_record = User(qq_id=qq_id, default_mode=mode)
+                db_session.add(user_record)
+
+            user_record.steam_id = steam_id_input
+            user_record.steam_id_64 = steam_id_64
+            user_record.steam_name = steam_name
+            user_record.default_mode = mode
             db_session.commit()
             
             yield event.plain_result(f"成功绑定 Steam 账户: {steam_name} ({steam_id_64})，默认查询模式: {mode.upper()}")
+
+    @filter.command("unbind")
+    async def unbind(
+        self,
+        event: AstrMessageEvent,
+        args=None,
+        kwargs=None,
+        *extra_args,
+        **extra_kwargs,
+    ):
+        """解除当前绑定的 SteamID"""
+        if kwargs in (None, inspect._empty):
+            kwargs = {}
+
+        qq_id = str(event.get_sender_id())
+
+        with get_db_session() as db_session:
+            user = db_session.query(User).filter_by(qq_id=qq_id).first()
+
+            if not user or not user.steam_id_64:
+                yield event.plain_result("你还没有绑定 SteamID。")
+                return
+
+            previous_name = user.steam_name
+            previous_steam_id64 = user.steam_id_64
+
+            user.steam_id = None
+            user.steam_id_64 = None
+            db_session.commit()
+
+            yield event.plain_result(
+                f"已解除 Steam 账户绑定: {previous_name} ({previous_steam_id64})。您可以使用 /bind 重新绑定。"
+            )
 
     @filter.command("info")
     async def info(
@@ -135,10 +180,11 @@ class GOKZPlugin(Star):
         qq_id = str(event.get_sender_id())
         if kwargs in (None, inspect._empty):
             kwargs = {}
+ 
         with get_db_session() as db_session:
             user = db_session.query(User).filter_by(qq_id=qq_id).first()
-
-            if not user:
+ 
+            if not user or not user.steam_id_64:
                 yield event.plain_result("你还没有绑定 SteamID。请使用 /bind <steamid> 进行绑定。")
                 return
             
