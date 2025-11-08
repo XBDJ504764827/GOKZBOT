@@ -49,7 +49,7 @@ class GOKZPlugin(Star):
         init_db()
 
     @filter.command("bind")
-    async def bind(self, event: AstrMessageEvent):
+    async def bind(self, event: AstrMessageEvent, *args):
         """绑定你的steamid，例如 /bind <id> 或 /bind <id> -u vnl"""
         args = event.message_str.split()[1:]
         
