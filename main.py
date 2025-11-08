@@ -3,6 +3,7 @@ from bs4 import BeautifulSoup
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from .database import get_db_session, User, init_db
+from .kz_stats import get_kzgo_stats, get_vnl_stats, create_stats_image
 
 
 async def get_steam_info(steam_id_input: str) -> dict | None:
@@ -223,3 +224,83 @@ class GOKZPlugin(Star):
                 f"绑定时间: {bind_time}"
             )
             yield event.plain_result(msg)
+
+    @filter.command("kz")
+    async def kz(
+        self,
+        event: AstrMessageEvent,
+        args=None,
+        kwargs=None,
+        extra_args=None,
+        extra_kwargs=None,
+    ):
+        """查询指定玩家的KZ数据, 默认查询自己。用法: /kz [-u <模式>] [@某人]"""
+        # --- Argument Parsing ---
+        cmd_args = []
+        if args is not None:
+            if isinstance(args, (list, tuple)):
+                cmd_args.extend(args)
+            else:
+                cmd_args.append(args)
+        if extra_args is not None:
+            if isinstance(extra_args, (list, tuple)):
+                cmd_args.extend(extra_args)
+            else:
+                cmd_args.append(extra_args)
+        if not cmd_args and event.message_str.strip() != "/kz":
+             cmd_args = event.message_str.split()[1:]
+
+        target_qq_id = str(event.get_sender_id())
+        # Check for mentions
+        if hasattr(event, "mentions") and event.mentions:
+            target_qq_id = str(event.mentions[0].id)
+
+        mode_override = None
+        # The argument parsing here is tricky because AstrBot might pass mentions
+        # as part of the text arguments. We'll look for -u and the next argument.
+        if "-u" in cmd_args:
+            try:
+                mode_index = cmd_args.index("-u")
+                if mode_index + 1 < len(cmd_args):
+                    potential_mode = cmd_args[mode_index + 1]
+                    if potential_mode in ["kzt", "skz", "vnl"]:
+                        mode_override = potential_mode
+            except (ValueError, IndexError):
+                # This can happen if parsing fails, just ignore for now.
+                pass
+        
+        # --- Database Lookup ---
+        with get_db_session() as db_session:
+            user = db_session.query(User).filter_by(qq_id=target_qq_id).first()
+            if not user or not user.steam_id_64:
+                yield event.plain_result("无法查询, 未绑定 SteamID。请使用 /bind 绑定。")
+                return
+            
+            mode = mode_override or user.default_mode or "kzt"
+            steam_id = user.steam_id
+            steam_id64 = user.steam_id_64
+
+        # --- Data Fetching ---
+        stats = None
+        yield event.plain_result(f"正在查询 {mode.upper()} 模式数据...")
+        if mode in ["kzt", "skz"]:
+            stats = await get_kzgo_stats(steam_id, mode)
+        elif mode == "vnl":
+            stats = await get_vnl_stats(steam_id64)
+        else:
+            valid_modes = ["kzt", "skz", "vnl"]
+            yield event.plain_result(f"无效的模式。可用模式: {', '.join(valid_modes)}")
+            return
+            
+        if not stats:
+            yield event.plain_result("未能查询到玩家数据，请检查绑定的 SteamID 或稍后再试。")
+            return
+            
+        # --- Image Generation ---
+        image_bytes = await create_stats_image(stats)
+        
+        if not image_bytes:
+            yield event.plain_result("生成玩家数据图时出错。")
+            return
+
+        yield event.image_result(image_bytes)
