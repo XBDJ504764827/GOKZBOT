@@ -169,6 +169,7 @@ class GOKZPlugin(Star):
 
             user.steam_id = None
             user.steam_id_64 = None
+            user.default_mode = None
             db_session.commit()
 
             yield event.plain_result(
