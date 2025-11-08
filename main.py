@@ -48,32 +48,24 @@ def parse_bind_args(cmd_args: list) -> tuple[str | None, str, str | None]:
         return None, "kzt", "用法: /bind <steamid> [-u <模式>]"
 
     mode = "kzt"
-    valid_modes = ["kzt", "skz", "vnl"]
-    steam_id_parts = []
-
-    if "-u" in cmd_args:
-        u_index = cmd_args.index("-u")
+    valid_modes = {"kzt", "skz", "vnl"}
+    
+    # Check if the last argument is a mode and if there are preceding arguments for the steamid
+    if len(cmd_args) > 1 and cmd_args[-1] in valid_modes:
+        potential_mode = cmd_args[-1]
+        steam_id_parts = cmd_args[:-1]
         
-        # Check for mode value after -u
-        if u_index + 1 >= len(cmd_args):
-            return None, "", "-u 参数后需要指定模式。"
+        # To be more robust, we can assume the user of `-u` is now gone,
+        # so the second to last argument shouldn't be `-u`.
+        # However, the framework might just remove '-u' and keep the arguments.
+        # Let's handle the case where the framework removes '-u' but leaves a gap or not.
+        # The simplest robust way is to assume the last part is the mode if it matches.
         
-        mode_candidate = cmd_args[u_index + 1]
-        if mode_candidate not in valid_modes:
-            return None, "", f"无效的模式。可用模式: {', '.join(valid_modes)}"
-        
-        mode = mode_candidate
-        
-        # Steam ID is everything before -u
-        steam_id_parts = cmd_args[:u_index]
-        if not steam_id_parts:
-            return None, "", "请输入 SteamID。"
-
+        mode = potential_mode
+        steam_id_input = " ".join(steam_id_parts)
     else:
-        # No -u, all args are part of steam_id
-        steam_id_parts = cmd_args
-
-    steam_id_input = " ".join(steam_id_parts)
+        # If only one arg, or last arg is not a mode, treat all as steamid
+        steam_id_input = " ".join(cmd_args)
 
     return steam_id_input, mode, None
 
