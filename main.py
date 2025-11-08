@@ -128,19 +128,28 @@ class GOKZPlugin(Star):
                 yield event.plain_result(f"此 Steam 账户已被其他用户绑定。")
                 return
 
-            if existing_user:
-                user_record = existing_user
+            if not existing_user:
+                # New user
+                new_user = User(
+                    qq_id=qq_id,
+                    steam_id=steam_id_input,
+                    steam_id_64=steam_id_64,
+                    steam_name=steam_name,
+                    default_mode=mode,
+                )
+                db_session.add(new_user)
             else:
-                user_record = User(qq_id=qq_id, default_mode=mode)
-                db_session.add(user_record)
+                # Existing user, re-binding
+                existing_user.steam_id = steam_id_input
+                existing_user.steam_id_64 = steam_id_64
+                existing_user.steam_name = steam_name
+                existing_user.default_mode = mode
 
-            user_record.steam_id = steam_id_input
-            user_record.steam_id_64 = steam_id_64
-            user_record.steam_name = steam_name
-            user_record.default_mode = mode
             db_session.commit()
-            
-            yield event.plain_result(f"成功绑定 Steam 账户: {steam_name} ({steam_id_64})，默认查询模式: {mode.upper()}")
+
+            yield event.plain_result(
+                f"成功绑定 Steam 账户: {steam_name} ({steam_id_64})，默认查询模式: {mode.upper()}"
+            )
 
     @filter.command("unbind")
     async def unbind(
