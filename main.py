@@ -47,19 +47,33 @@ def parse_bind_args(cmd_args: list) -> tuple[str | None, str, str | None]:
     if not cmd_args:
         return None, "kzt", "用法: /bind <steamid> [-u <模式>]"
 
-    steam_id_input = cmd_args[0]
     mode = "kzt"
     valid_modes = ["kzt", "skz", "vnl"]
+    steam_id_parts = []
 
     if "-u" in cmd_args:
-        try:
-            mode_index = cmd_args.index("-u") + 1
-            if mode_index < len(cmd_args) and cmd_args[mode_index] in valid_modes:
-                mode = cmd_args[mode_index]
-            else:
-                return None, "", f"无效的模式。可用模式: {', '.join(valid_modes)}"
-        except (ValueError, IndexError):
-            return None, "", "-u 参数使用错误。用法: /bind <steamid> -u <模式>"
+        u_index = cmd_args.index("-u")
+        
+        # Check for mode value after -u
+        if u_index + 1 >= len(cmd_args):
+            return None, "", "-u 参数后需要指定模式。"
+        
+        mode_candidate = cmd_args[u_index + 1]
+        if mode_candidate not in valid_modes:
+            return None, "", f"无效的模式。可用模式: {', '.join(valid_modes)}"
+        
+        mode = mode_candidate
+        
+        # Steam ID is everything before -u
+        steam_id_parts = cmd_args[:u_index]
+        if not steam_id_parts:
+            return None, "", "请输入 SteamID。"
+
+    else:
+        # No -u, all args are part of steam_id
+        steam_id_parts = cmd_args
+
+    steam_id_input = " ".join(steam_id_parts)
 
     return steam_id_input, mode, None
 
