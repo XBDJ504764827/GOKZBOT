@@ -82,7 +82,6 @@ class GOKZPlugin(Star):
                 yield event.plain_result(f"您已经绑定过 Steam 账户: {existing_user.steam_name} ({existing_user.steam_id_64})")
                 return
 
-            yield event.plain_result(f"正在查询 SteamID '{steam_id_input}'...")
             info = await get_steam_info(steam_id_input)
 
             if not info:
@@ -98,14 +97,14 @@ class GOKZPlugin(Star):
                 yield event.plain_result(f"此 Steam 账户已被其他用户绑定。")
                 return
 
-            new_user = User(qq_id=qq_id, steam_id_64=steam_id_64, steam_name=steam_name, default_mode=mode)
+            new_user = User(qq_id=qq_id, steam_id=steam_id_input, steam_id_64=steam_id_64, steam_name=steam_name, default_mode=mode)
             db_session.add(new_user)
             db_session.commit()
             
             yield event.plain_result(f"成功绑定 Steam 账户: {steam_name} ({steam_id_64})，默认查询模式: {mode.upper()}")
 
     @filter.command("info")
-    async def info(self, event: AstrMessageEvent):
+    async def info(self, event: AstrMessageEvent, *args):
         """查询你绑定的Steam账户信息"""
         qq_id = str(event.get_sender_id())
         with get_db_session() as db_session:

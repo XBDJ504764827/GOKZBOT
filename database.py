@@ -9,6 +9,7 @@ Base = declarative_base()
 class User(Base):
     __tablename__ = 'users'
     qq_id = Column(String, primary_key=True)
+    steam_id = Column(String, nullable=False)
     steam_id_64 = Column(String, nullable=False, unique=True)
     steam_name = Column(String, nullable=False)
     default_mode = Column(String, nullable=False, default='kzt')
