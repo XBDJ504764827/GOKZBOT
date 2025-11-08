@@ -43,7 +43,7 @@ async def get_steam_info(steam_id_input: str) -> dict | None:
         return None
 
 
-@register("GOKZBOT", "ShaWuXBDJ", "kz数据查询", "1.0.0")
+@register("GOKZBOT", "ShaWuXBDJ", "kz数据查询", "1.0.3")
 class GOKZPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
