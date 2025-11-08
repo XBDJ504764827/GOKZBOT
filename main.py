@@ -1,7 +1,8 @@
 import aiohttp
 from bs4 import BeautifulSoup
 from collections import Counter
-import base64
+import tempfile
+import os
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from .database import get_db_session, User, init_db, VnlMapTier
@@ -314,7 +315,14 @@ class GOKZPlugin(Star):
             yield event.plain_result("生成玩家数据图时出错。")
             return
 
-        b64_string = base64.b64encode(image_bytes).decode('utf-8')
-        # Use base64:// scheme which is more common for CQcode-style bots
-        data_uri = f"base64://{b64_string}"
-        yield event.image_result(data_uri)
+        # Workaround for AstrBot image sending: save to a temporary file
+        tmp_path = ""
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                tmp.write(image_bytes)
+                tmp_path = tmp.name
+            
+            yield event.image_result(tmp_path)
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.remove(tmp_path)
