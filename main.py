@@ -1,10 +1,8 @@
-import os
-import re
 import aiohttp
 from bs4 import BeautifulSoup
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
-from .database import get_db_session, User
+from .database import get_db_session, User, init_db
 
 
 async def get_steam_info(steam_id_input: str) -> dict | None:
@@ -48,7 +46,7 @@ async def get_steam_info(steam_id_input: str) -> dict | None:
 class GOKZPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
-        self.db_session = get_db_session()
+        init_db()
 
     @filter.command("bind")
     async def bind(self, event: AstrMessageEvent):
@@ -77,50 +75,52 @@ class GOKZPlugin(Star):
                 return
 
         qq_id = str(event.get_sender_id())
-        existing_user = self.db_session.query(User).filter_by(qq_id=qq_id).first()
+        with get_db_session() as db_session:
+            existing_user = db_session.query(User).filter_by(qq_id=qq_id).first()
 
-        if existing_user:
-            yield event.plain_result(f"您已经绑定过 Steam 账户: {existing_user.steam_name} ({existing_user.steam_id_64})")
-            return
+            if existing_user:
+                yield event.plain_result(f"您已经绑定过 Steam 账户: {existing_user.steam_name} ({existing_user.steam_id_64})")
+                return
 
-        yield event.plain_result(f"正在查询 SteamID '{steam_id_input}'...")
-        info = await get_steam_info(steam_id_input)
+            yield event.plain_result(f"正在查询 SteamID '{steam_id_input}'...")
+            info = await get_steam_info(steam_id_input)
 
-        if not info:
-            yield event.plain_result(f"无法找到 SteamID '{steam_id_input}' 的信息，请检查输入。")
-            return
-        
-        steam_id_64 = info["steam_id_64"]
-        steam_name = info["name"]
-        
-        # 检查此 SteamID 是否已被其他人绑定
-        steam_id_bound = self.db_session.query(User).filter_by(steam_id_64=steam_id_64).first()
-        if steam_id_bound:
-            yield event.plain_result(f"此 Steam 账户已被其他用户绑定。")
-            return
+            if not info:
+                yield event.plain_result(f"无法找到 SteamID '{steam_id_input}' 的信息，请检查输入。")
+                return
+            
+            steam_id_64 = info["steam_id_64"]
+            steam_name = info["name"]
+            
+            # 检查此 SteamID 是否已被其他人绑定
+            steam_id_bound = db_session.query(User).filter_by(steam_id_64=steam_id_64).first()
+            if steam_id_bound:
+                yield event.plain_result(f"此 Steam 账户已被其他用户绑定。")
+                return
 
-        new_user = User(qq_id=qq_id, steam_id_64=steam_id_64, steam_name=steam_name, default_mode=mode)
-        self.db_session.add(new_user)
-        self.db_session.commit()
-        
-        yield event.plain_result(f"成功绑定 Steam 账户: {steam_name} ({steam_id_64})，默认查询模式: {mode.upper()}")
+            new_user = User(qq_id=qq_id, steam_id_64=steam_id_64, steam_name=steam_name, default_mode=mode)
+            db_session.add(new_user)
+            db_session.commit()
+            
+            yield event.plain_result(f"成功绑定 Steam 账户: {steam_name} ({steam_id_64})，默认查询模式: {mode.upper()}")
 
     @filter.command("info")
     async def info(self, event: AstrMessageEvent):
         """查询你绑定的Steam账户信息"""
         qq_id = str(event.get_sender_id())
-        user = self.db_session.query(User).filter_by(qq_id=qq_id).first()
+        with get_db_session() as db_session:
+            user = db_session.query(User).filter_by(qq_id=qq_id).first()
 
-        if not user:
-            yield event.plain_result("你还没有绑定 SteamID。请使用 /bind <steamid> 进行绑定。")
-            return
-        
-        bind_time = user.created_at.strftime("%Y-%m-%d %H:%M:%S")
-        
-        msg = (
-            f"Steam 名称: {user.steam_name}\n"
-            f"SteamID64: {user.steam_id_64}\n"
-            f"默认模式: {user.default_mode.upper()}\n"
-            f"绑定时间: {bind_time}"
-        )
-        yield event.plain_result(msg)
+            if not user:
+                yield event.plain_result("你还没有绑定 SteamID。请使用 /bind <steamid> 进行绑定。")
+                return
+            
+            bind_time = user.created_at.strftime("%Y-%m-%d %H:%M:%S")
+            
+            msg = (
+                f"Steam 名称: {user.steam_name}\n"
+                f"SteamID64: {user.steam_id_64}\n"
+                f"默认模式: {user.default_mode.upper()}\n"
+                f"绑定时间: {bind_time}"
+            )
+            yield event.plain_result(msg)
