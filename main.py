@@ -49,32 +49,43 @@ async def get_steam_info(steam_id_input: str) -> dict | None:
 def parse_bind_args(cmd_args: list) -> tuple[str | None, str, str | None]:
     """解析绑定命令的参数"""
     if not cmd_args:
-        return None, "kzt", "用法: /bind <steamid> [-u <模式>]"
+        return None, "kzt", "用法: /bind <steamid> [-u <模式>]\n支持的模式: kzt, skz, vnl"
 
     mode = "kzt"
     valid_modes = {"kzt", "skz", "vnl"}
     
-    # Check if the last argument is a mode and if there are preceding arguments for the steamid
-    if len(cmd_args) > 1 and cmd_args[-1] in valid_modes:
-        potential_mode = cmd_args[-1]
-        steam_id_parts = cmd_args[:-1]
-        
-        # To be more robust, we can assume the user of `-u` is now gone,
-        # so the second to last argument shouldn't be `-u`.
-        # However, the framework might just remove '-u' and keep the arguments.
-        # Let's handle the case where the framework removes '-u' but leaves a gap or not.
-        # The simplest robust way is to assume the last part is the mode if it matches.
-        
-        mode = potential_mode
-        steam_id_input = " ".join(steam_id_parts)
+    # Look for -u flag and mode
+    if "-u" in cmd_args:
+        try:
+            u_index = cmd_args.index("-u")
+            if u_index + 1 < len(cmd_args):
+                potential_mode = cmd_args[u_index + 1]
+                if potential_mode in valid_modes:
+                    mode = potential_mode
+                    # Remove -u and mode from args
+                    steam_id_parts = cmd_args[:u_index] + cmd_args[u_index + 2:]
+                    steam_id_input = " ".join(steam_id_parts)
+                else:
+                    return None, "kzt", f"无效的模式 '{potential_mode}'。支持的模式: kzt, skz, vnl"
+            else:
+                return None, "kzt", "用法: /bind <steamid> [-u <模式>]\n支持的模式: kzt, skz, vnl"
+        except (ValueError, IndexError):
+            return None, "kzt", "用法: /bind <steamid> [-u <模式>]\n支持的模式: kzt, skz, vnl"
+    # Check if the last argument is a mode (for backward compatibility)
+    elif len(cmd_args) > 1 and cmd_args[-1] in valid_modes:
+        mode = cmd_args[-1]
+        steam_id_input = " ".join(cmd_args[:-1])
     else:
-        # If only one arg, or last arg is not a mode, treat all as steamid
+        # Treat all as steamid
         steam_id_input = " ".join(cmd_args)
 
-    return steam_id_input, mode, None
+    if not steam_id_input or not steam_id_input.strip():
+        return None, "kzt", "用法: /bind <steamid> [-u <模式>]\n支持的模式: kzt, skz, vnl"
+
+    return steam_id_input.strip(), mode, None
 
 
-@register("GOKZBOT", "ShaWuXBDJ", "kz数据查询", "1.0.4")
+@register("GOKZBOT", "ShaWuXBDJ", "kz数据查询", "1.1.0")
 class GOKZPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -206,21 +217,33 @@ class GOKZPlugin(Star):
         extra_args=None,
         extra_kwargs=None,
     ):
-        """查询你绑定的Steam账户信息"""
-        qq_id = str(event.get_sender_id())
+        """查询你或其他人绑定的Steam账户信息。用法: /info 或 /info @某人"""
+        # Check if someone is mentioned
+        target_qq_id = str(event.get_sender_id())
+        is_self = True
+        
+        if hasattr(event, "mentions") and event.mentions:
+            target_qq_id = str(event.mentions[0].id)
+            is_self = False
+        
         if kwargs is None:
             kwargs = {}
  
         with get_db_session() as db_session:
-            user = db_session.query(User).filter_by(qq_id=qq_id).first()
+            user = db_session.query(User).filter_by(qq_id=target_qq_id).first()
  
             if not user or not user.steam_id_64:
-                yield event.plain_result("你还没有绑定 SteamID。请使用 /bind <steamid> 进行绑定。")
+                if is_self:
+                    yield event.plain_result("你还没有绑定 SteamID。请使用 /bind <steamid> 进行绑定。")
+                else:
+                    yield event.plain_result("该用户还没有绑定 SteamID。")
                 return
             
             bind_time = user.created_at.strftime("%Y-%m-%d %H:%M:%S")
             
+            prefix = "你的" if is_self else f"{user.steam_name} 的"
             msg = (
+                f"{prefix}绑定信息:\n"
                 f"Steam 名称: {user.steam_name}\n"
                 f"SteamID64: {user.steam_id_64}\n"
                 f"默认模式: {user.default_mode.upper()}\n"

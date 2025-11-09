@@ -10,7 +10,7 @@ async def get_kzgo_stats(steam_id: str, mode: str) -> dict | None:
     url = f"https://kzgo.eu/players/{steam_id}?{mode}"
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url) as response:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
                 if response.status != 200:
                     return None
                 html = await response.text()
@@ -23,14 +23,26 @@ async def get_kzgo_stats(steam_id: str, mode: str) -> dict | None:
                 stats = {"source": "kzgo.eu", "mode": mode}
 
                 # Player name and avatar
-                stats["name"] = player_card.find("h1").text.strip()
-                stats["avatar_url"] = player_card.find("img")["src"]
+                name_tag = player_card.find("h1")
+                img_tag = player_card.find("img")
+                
+                if name_tag:
+                    stats["name"] = name_tag.text.strip()
+                else:
+                    stats["name"] = "Unknown"
+                    
+                if img_tag and img_tag.get("src"):
+                    stats["avatar_url"] = img_tag["src"]
+                else:
+                    stats["avatar_url"] = ""
 
                 # Rank and Points
                 rank_div = player_card.find("div", class_="rank")
                 if rank_div:
-                    stats["rank"] = rank_div.find("h2").text.strip()
-                    stats["points"] = rank_div.find("p").text.strip().replace("points", "").strip()
+                    rank_h2 = rank_div.find("h2")
+                    rank_p = rank_div.find("p")
+                    stats["rank"] = rank_h2.text.strip() if rank_h2 else "Unranked"
+                    stats["points"] = rank_p.text.strip().replace("points", "").strip() if rank_p else "0"
                 else:
                     stats["rank"] = "Unranked"
                     stats["points"] = "0"
@@ -47,6 +59,8 @@ async def get_kzgo_stats(steam_id: str, mode: str) -> dict | None:
                             stats[key] = value
 
                 return stats
+    except aiohttp.ClientError:
+        return None
     except Exception:
         return None
 
@@ -57,13 +71,16 @@ async def get_vnl_stats(steam_id64: str) -> dict | None:
     profile_url = f"https://vnl.kz/api/v1/profiles?steamids={steam_id64}"
     
     try:
-        async with aiohttp.ClientSession() as session:
+        timeout = aiohttp.ClientTimeout(total=15)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             # Fetch records for points and map_ids
-            async with session.get(records_url) as response:
-                if response.status != 200:
-                    records = [] # Assume no records if API fails
-                else:
-                    records = await response.json()
+            records = []
+            try:
+                async with session.get(records_url) as response:
+                    if response.status == 200:
+                        records = await response.json()
+            except (aiohttp.ClientError, Exception):
+                pass  # Continue with empty records
             
             # Calculate total points and finishes from records
             total_points = sum(record.get('points', 0) for record in records)
@@ -72,28 +89,31 @@ async def get_vnl_stats(steam_id64: str) -> dict | None:
 
             # Fetch profile for name and avatar
             stats = {}
-            async with session.get(profile_url) as profile_response:
-                if profile_response.status == 200:
-                    profile_data = await profile_response.json()
-                    if profile_data and len(profile_data) > 0:
-                        stats["name"] = profile_data[0].get("name", "N/A")
-                        stats["avatar_url"] = profile_data[0].get("avatarfull", "")
+            try:
+                async with session.get(profile_url) as profile_response:
+                    if profile_response.status == 200:
+                        profile_data = await profile_response.json()
+                        if profile_data and len(profile_data) > 0:
+                            stats["name"] = profile_data[0].get("name", "N/A")
+                            stats["avatar_url"] = profile_data[0].get("avatarfull", "")
+                        else:
+                            stats["name"] = records[0].get("player_name", "N/A") if records else "N/A"
+                            stats["avatar_url"] = ""
                     else:
-                        # Fallback name from records if profile API fails
                         stats["name"] = records[0].get("player_name", "N/A") if records else "N/A"
                         stats["avatar_url"] = ""
-                else:
-                    stats["name"] = records[0].get("player_name", "N/A") if records else "N/A"
-                    stats["avatar_url"] = ""
+            except (aiohttp.ClientError, Exception):
+                stats["name"] = records[0].get("player_name", "N/A") if records else "N/A"
+                stats["avatar_url"] = ""
 
             # Assemble stats dictionary
             stats.update({
                 "source": "vnl.kz",
                 "mode": "vnl",
                 "points": total_points,
-                "rank": str(total_points), # Using points as rank for vnl
+                "rank": str(total_points),
                 "finishes": finishes,
-                "wrs": "N/A", # This API doesn't provide WR count.
+                "wrs": "N/A",
                 "map_ids": map_ids
             })
             
@@ -102,11 +122,20 @@ async def get_vnl_stats(steam_id64: str) -> dict | None:
         return None
 
 def _find_font() -> str:
-    """Tries to find a usable TTF font on a Linux system."""
+    """Tries to find a usable TTF font on Windows, Linux, or macOS."""
     font_paths = [
+        # Windows fonts
+        "C:/Windows/Fonts/msyh.ttc",  # Microsoft YaHei (supports Chinese)
+        "C:/Windows/Fonts/simhei.ttf",  # SimHei
+        "C:/Windows/Fonts/arial.ttf",  # Arial
+        # Linux fonts
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/usr/share/fonts/TTF/DejaVuSans.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        # macOS fonts
+        "/System/Library/Fonts/PingFang.ttc",
+        "/Library/Fonts/Arial.ttf",
     ]
     for path in font_paths:
         if os.path.exists(path):
@@ -116,9 +145,9 @@ def _find_font() -> str:
 async def create_stats_image(stats: dict) -> bytes | None:
     """Creates an image from the player's stats."""
     try:
-        # Create a background
-        width, height = 400, 250  # Increased height
-        bg_color = (24, 25, 28)  # Dark grey
+        # Create a background with better dimensions
+        width, height = 450, 280
+        bg_color = (24, 25, 28)
         image = Image.new("RGB", (width, height), bg_color)
         draw = ImageDraw.Draw(image)
         
@@ -128,60 +157,101 @@ async def create_stats_image(stats: dict) -> bytes | None:
             if font_path == "default":
                 font_regular = ImageFont.load_default()
                 font_bold = ImageFont.load_default()
+                font_small = ImageFont.load_default()
             else:
-                font_regular = ImageFont.truetype(font_path, 15)
-                font_bold = ImageFont.truetype(font_path, 18)
-        except IOError:
-            # Fallback to default font if the specified one isn't found
+                font_regular = ImageFont.truetype(font_path, 14)
+                font_bold = ImageFont.truetype(font_path, 20)
+                font_small = ImageFont.truetype(font_path, 12)
+        except (IOError, OSError):
             font_regular = ImageFont.load_default()
             font_bold = ImageFont.load_default()
+            font_small = ImageFont.load_default()
 
-        # Fetch and add avatar
+        # Fetch and add avatar with rounded corners
         avatar_url = stats.get("avatar_url")
         if avatar_url:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(avatar_url) as response:
-                    if response.status == 200:
-                        avatar_data = await response.read()
-                        avatar_image = Image.open(io.BytesIO(avatar_data))
-                        avatar_image = avatar_image.resize((64, 64))
-                        image.paste(avatar_image, (15, 15))
+            try:
+                timeout = aiohttp.ClientTimeout(total=5)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.get(avatar_url) as response:
+                        if response.status == 200:
+                            avatar_data = await response.read()
+                            avatar_image = Image.open(io.BytesIO(avatar_data))
+                            avatar_image = avatar_image.resize((70, 70))
+                            
+                            # Create rounded corners mask
+                            mask = Image.new('L', (70, 70), 0)
+                            mask_draw = ImageDraw.Draw(mask)
+                            mask_draw.ellipse((0, 0, 70, 70), fill=255)
+                            
+                            # Apply mask and paste
+                            output = Image.new('RGBA', (70, 70), (0, 0, 0, 0))
+                            output.paste(avatar_image, (0, 0))
+                            output.putalpha(mask)
+                            
+                            image.paste(output, (15, 15), output)
+            except Exception:
+                pass  # Skip avatar if fetch fails
 
         # Colors
         text_color = (255, 255, 255)
-        highlight_color = (153, 102, 255) # Purple
+        highlight_color = (153, 102, 255)
+        secondary_color = (180, 180, 180)
+        mode_color = (100, 200, 255)
 
-        # Draw text
-        draw.text((95, 15), stats.get("name", "N/A"), font=font_bold, fill=text_color)
+        # Draw player name and mode badge
+        draw.text((100, 20), stats.get("name", "N/A"), font=font_bold, fill=text_color)
         
+        mode_text = f"[{stats.get('mode', 'N/A').upper()}]"
+        draw.text((100, 50), mode_text, font=font_small, fill=mode_color)
+        
+        # Draw rank and points
         rank_text = f"Rank: {stats.get('rank', 'N/A')}"
         points_text = f"Points: {stats.get('points', 'N/A')}"
-        draw.text((95, 45), rank_text, font=font_regular, fill=highlight_color)
-        draw.text((95, 65), points_text, font=font_regular, fill=text_color)
+        draw.text((100, 70), rank_text, font=font_regular, fill=highlight_color)
+        draw.text((100, 92), points_text, font=font_regular, fill=text_color)
+        
+        # Draw separator line
+        draw.line([(15, 120), (width - 15, 120)], fill=secondary_color, width=1)
         
         # Draw stats based on source
-        y_offset = 100
+        y_offset = 135
         if stats["source"] == "kzgo.eu":
-            completions = f"Completions: {stats.get('maps_completed', 'N/A')}"
-            wr = f"World Records: {stats.get('world_records', 'N/A')}"
-            draw.text((15, y_offset), completions, font=font_regular, fill=text_color)
-            draw.text((15, y_offset + 20), wr, font=font_regular, fill=text_color)
-        elif stats["source"] == "vnl.kz":
-            finishes = f"Finishes: {stats.get('finishes', 'N/A')}"
-            draw.text((15, y_offset), finishes, font=font_regular, fill=text_color)
+            # Display kzgo.eu stats
+            stats_to_display = [
+                ("Maps Completed", stats.get('maps_completed', 'N/A')),
+                ("World Records", stats.get('world_records', 'N/A')),
+                ("Average", stats.get('average', 'N/A')),
+            ]
             
+            for i, (label, value) in enumerate(stats_to_display):
+                draw.text((15, y_offset + i * 25), f"{label}:", font=font_regular, fill=secondary_color)
+                draw.text((200, y_offset + i * 25), str(value), font=font_regular, fill=text_color)
+                
+        elif stats["source"] == "vnl.kz":
+            # Display vnl stats
+            finishes = stats.get('finishes', 'N/A')
+            draw.text((15, y_offset), "Finishes:", font=font_regular, fill=secondary_color)
+            draw.text((200, y_offset), str(finishes), font=font_regular, fill=text_color)
+            
+            # Display tier distribution
             tier_counts = stats.get("tier_counts")
             if tier_counts:
-                tier_texts = [f"T{tier}: {count}" for tier, count in tier_counts.items()]
+                draw.text((15, y_offset + 30), "Tier Distribution:", font=font_regular, fill=secondary_color)
                 
-                # Display up to 5 tiers per line to fit
-                line1 = "  ".join(tier_texts[:5])
-                line2 = "  ".join(tier_texts[5:10])
-                draw.text((15, y_offset + 25), line1, font=font_regular, fill=text_color)
+                tier_texts = [f"T{tier}: {count}" for tier, count in tier_counts.items()]
+                line1 = "  ".join(tier_texts[:6])
+                line2 = "  ".join(tier_texts[6:12])
+                
+                draw.text((15, y_offset + 55), line1, font=font_small, fill=text_color)
                 if line2:
-                    draw.text((15, y_offset + 50), line2, font=font_regular, fill=text_color)
+                    draw.text((15, y_offset + 75), line2, font=font_small, fill=text_color)
             else:
-                 draw.text((15, y_offset + 25), "No TP tier data found.", font=font_regular, fill=text_color)
+                draw.text((15, y_offset + 30), "No tier data available", font=font_small, fill=secondary_color)
+
+        # Add footer
+        footer_text = f"Data from {stats['source']}"
+        draw.text((15, height - 25), footer_text, font=font_small, fill=secondary_color)
 
         # Save image to a bytes buffer
         img_byte_arr = io.BytesIO()
