@@ -4,6 +4,11 @@ import os
 from bs4 import BeautifulSoup
 from PIL import Image, ImageDraw, ImageFont
 
+# 定义字体缓存路径
+FONT_CACHE_DIR = os.path.join(os.path.dirname(__file__), '.font_cache')
+FONT_URL = 'https://github.com/googlefonts/noto-cjk/raw/main/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf'
+FONT_FILE = os.path.join(FONT_CACHE_DIR, 'NotoSansCJKsc-Regular.otf')
+
 
 async def get_kzgo_stats(steam_id: str, mode: str) -> dict | None:
     """Fetches player stats from kzgo.eu."""
@@ -214,23 +219,59 @@ async def get_vnl_stats(steam_id64: str) -> dict | None:
 def _find_font() -> str:
     """Tries to find a usable TTF font on Windows, Linux, or macOS."""
     font_paths = [
+        # Linux fonts - 优先使用支持中文的字体
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",  # 文泉驿微米黑
+        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",  # 文泉驿正黑
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",  # Noto Sans CJK
+        "/usr/share/fonts/truetype/arphic/uming.ttc",  # AR PL UMing
+        "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",  # Droid Sans Fallback
         # Windows fonts
         "C:/Windows/Fonts/msyh.ttc",  # Microsoft YaHei (supports Chinese)
         "C:/Windows/Fonts/simhei.ttf",  # SimHei
+        "C:/Windows/Fonts/simsun.ttc",  # SimSun
         "C:/Windows/Fonts/arial.ttf",  # Arial
-        # Linux fonts
+        # Linux fonts - 其他字体
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/usr/share/fonts/TTF/DejaVuSans.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
         # macOS fonts
-        "/System/Library/Fonts/PingFang.ttc",
+        "/System/Library/Fonts/PingFang.ttc",  # PingFang (supports Chinese)
+        "/System/Library/Fonts/STHeiti Medium.ttc",  # STHeiti
         "/Library/Fonts/Arial.ttf",
+        # 缓存的字体
+        FONT_FILE,
     ]
     for path in font_paths:
         if os.path.exists(path):
             return path
     return "default"  # Pillow will use its built-in bitmap font
+
+
+async def _download_font() -> bool:
+    """下载中文字体到缓存目录"""
+    try:
+        # 如果字体已经存在，不需要下载
+        if os.path.exists(FONT_FILE):
+            return True
+        
+        # 创建缓存目录
+        os.makedirs(FONT_CACHE_DIR, exist_ok=True)
+        
+        # 下载字体文件（使用更稳定的源）
+        font_url = "https://raw.githubusercontent.com/googlefonts/noto-cjk/main/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf"
+        
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(font_url) as response:
+                if response.status == 200:
+                    font_data = await response.read()
+                    with open(FONT_FILE, 'wb') as f:
+                        f.write(font_data)
+                    return True
+        return False
+    except Exception as e:
+        print(f"下载字体失败: {e}")
+        return False
 
 async def create_stats_image(stats: dict) -> bytes | None:
     """Creates an image from the player's stats."""
@@ -244,6 +285,11 @@ async def create_stats_image(stats: dict) -> bytes | None:
         # Load font
         try:
             font_path = _find_font()
+            # 如果没有找到系统字体，尝试下载
+            if font_path == "default":
+                await _download_font()
+                font_path = _find_font()
+            
             if font_path == "default":
                 font_regular = ImageFont.load_default()
                 font_bold = ImageFont.load_default()
