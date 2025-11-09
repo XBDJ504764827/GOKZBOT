@@ -69,6 +69,7 @@ async def get_vnl_stats(steam_id64: str) -> dict | None:
     """Fetches player stats for vnl mode from kztimerglobal and vnl.kz APIs."""
     records_url = f"https://kztimerglobal.com/api/v2.0/records/top?steamid64={steam_id64}&stage=0&modes_list_string=kz_vanilla&limit=10000&has_teleports=true"
     profile_url = f"https://vnl.kz/api/v1/profiles?steamids={steam_id64}"
+    ranking_url = f"https://kztimerglobal.com/api/v2.0/rankings?steamid64={steam_id64}&mode=kz_vanilla&has_teleports=true"
     
     try:
         timeout = aiohttp.ClientTimeout(total=15)
@@ -86,6 +87,17 @@ async def get_vnl_stats(steam_id64: str) -> dict | None:
             total_points = sum(record.get('points', 0) for record in records)
             finishes = len(records)
             map_ids = [record.get('map_id') for record in records if record.get('map_id') is not None]
+
+            # Fetch ranking data
+            rank = "N/A"
+            try:
+                async with session.get(ranking_url) as ranking_response:
+                    if ranking_response.status == 200:
+                        ranking_data = await ranking_response.json()
+                        if ranking_data and len(ranking_data) > 0:
+                            rank = str(ranking_data[0].get('points_rank', 'N/A'))
+            except (aiohttp.ClientError, Exception):
+                pass  # Use N/A if ranking fetch fails
 
             # Fetch profile for name and avatar
             stats = {}
@@ -111,7 +123,7 @@ async def get_vnl_stats(steam_id64: str) -> dict | None:
                 "source": "vnl.kz",
                 "mode": "vnl",
                 "points": total_points,
-                "rank": str(total_points),
+                "rank": rank,
                 "finishes": finishes,
                 "wrs": "N/A",
                 "map_ids": map_ids
@@ -146,7 +158,7 @@ async def create_stats_image(stats: dict) -> bytes | None:
     """Creates an image from the player's stats."""
     try:
         # Create a background with better dimensions
-        width, height = 450, 280
+        width, height = 450, 300
         bg_color = (24, 25, 28)
         image = Image.new("RGB", (width, height), bg_color)
         draw = ImageDraw.Draw(image)
@@ -200,14 +212,19 @@ async def create_stats_image(stats: dict) -> bytes | None:
         mode_color = (100, 200, 255)
 
         # Draw player name and mode badge
-        draw.text((100, 20), stats.get("name", "N/A"), font=font_bold, fill=text_color)
+        player_name = stats.get("name", "N/A")
+        draw.text((100, 20), player_name, font=font_bold, fill=text_color)
         
         mode_text = f"[{stats.get('mode', 'N/A').upper()}]"
         draw.text((100, 50), mode_text, font=font_small, fill=mode_color)
         
         # Draw rank and points
-        rank_text = f"Rank: {stats.get('rank', 'N/A')}"
-        points_text = f"Points: {stats.get('points', 'N/A')}"
+        rank_value = stats.get('rank', 'N/A')
+        points_value = stats.get('points', 'N/A')
+        
+        rank_text = f"Rank: #{rank_value}" if rank_value != "N/A" else "Rank: N/A"
+        points_text = f"Points: {points_value}"
+        
         draw.text((100, 70), rank_text, font=font_regular, fill=highlight_color)
         draw.text((100, 92), points_text, font=font_regular, fill=text_color)
         
@@ -240,12 +257,11 @@ async def create_stats_image(stats: dict) -> bytes | None:
                 draw.text((15, y_offset + 30), "Tier Distribution:", font=font_regular, fill=secondary_color)
                 
                 tier_texts = [f"T{tier}: {count}" for tier, count in tier_counts.items()]
-                line1 = "  ".join(tier_texts[:6])
-                line2 = "  ".join(tier_texts[6:12])
                 
-                draw.text((15, y_offset + 55), line1, font=font_small, fill=text_color)
-                if line2:
-                    draw.text((15, y_offset + 75), line2, font=font_small, fill=text_color)
+                # Display tiers in rows of 6
+                for row_idx in range(0, len(tier_texts), 6):
+                    row_text = "  ".join(tier_texts[row_idx:row_idx + 6])
+                    draw.text((15, y_offset + 55 + row_idx // 6 * 20), row_text, font=font_small, fill=text_color)
             else:
                 draw.text((15, y_offset + 30), "No tier data available", font=font_small, fill=secondary_color)
 
@@ -259,5 +275,7 @@ async def create_stats_image(stats: dict) -> bytes | None:
         img_byte_arr = img_byte_arr.getvalue()
 
         return img_byte_arr
-    except Exception:
+    except Exception as e:
+        # Log the error for debugging
+        print(f"Error creating stats image: {e}")
         return None

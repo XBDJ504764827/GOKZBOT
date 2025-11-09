@@ -122,8 +122,8 @@ class GOKZPlugin(Star):
 
         steam_id_input, mode, error_msg = parse_bind_args(cmd_args)
 
-        if error_msg:
-            yield event.plain_result(error_msg)
+        if error_msg or not steam_id_input:
+            yield event.plain_result(error_msg or "用法: /bind <steamid> [-u <模式>]\n支持的模式: kzt, skz, vnl")
             return
 
         qq_id = str(event.get_sender_id())
@@ -306,46 +306,45 @@ class GOKZPlugin(Star):
             steam_id = user.steam_id
             steam_id64 = user.steam_id_64
 
-        # --- Data Fetching ---
-        stats = None
-        yield event.plain_result(f"正在查询 {mode.upper()} 模式数据...")
-        if mode in ["kzt", "skz"]:
-            stats = await get_kzgo_stats(steam_id, mode)
-        elif mode == "vnl":
-            stats = await get_vnl_stats(steam_id64)
-            if stats:
-                map_ids = stats.get("map_ids", [])
-                if map_ids:
-                    # Query the database for tiers
-                    tiers = db_session.query(VnlMapTier.tptier).filter(VnlMapTier.id.in_(map_ids)).all()
-                    if tiers:
-                        tier_counts = Counter(tier[0] for tier in tiers)
-                        stats["tier_counts"] = dict(sorted(tier_counts.items()))
+            # --- Data Fetching ---
+            stats = None
+            yield event.plain_result(f"正在查询 {mode.upper()} 模式数据...")
+            if mode in ["kzt", "skz"]:
+                stats = await get_kzgo_stats(steam_id, mode)
+            elif mode == "vnl":
+                stats = await get_vnl_stats(steam_id64)
+                if stats:
+                    map_ids = stats.get("map_ids", [])
+                    if map_ids:
+                        # Query the database for tiers (within the same db_session context)
+                        tiers = db_session.query(VnlMapTier.tptier).filter(VnlMapTier.id.in_(map_ids)).all()
+                        if tiers:
+                            tier_counts = Counter(tier[0] for tier in tiers)
+                            stats["tier_counts"] = dict(sorted(tier_counts.items()))
+            else:
+                valid_modes = ["kzt", "skz", "vnl"]
+                yield event.plain_result(f"无效的模式。可用模式: {', '.join(valid_modes)}")
+                return
+                
+            if not stats:
+                yield event.plain_result("未能查询到玩家数据，请检查绑定的 SteamID 或稍后再试。")
+                return
+                
+            # --- Image Generation ---
+            image_bytes = await create_stats_image(stats)
+            
+            if not image_bytes:
+                yield event.plain_result("生成玩家数据图时出错。")
+                return
 
-        else:
-            valid_modes = ["kzt", "skz", "vnl"]
-            yield event.plain_result(f"无效的模式。可用模式: {', '.join(valid_modes)}")
-            return
-            
-        if not stats:
-            yield event.plain_result("未能查询到玩家数据，请检查绑定的 SteamID 或稍后再试。")
-            return
-            
-        # --- Image Generation ---
-        image_bytes = await create_stats_image(stats)
-        
-        if not image_bytes:
-            yield event.plain_result("生成玩家数据图时出错。")
-            return
-
-        # Workaround for AstrBot image sending: save to a temporary file
-        tmp_path = ""
-        try:
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                tmp.write(image_bytes)
-                tmp_path = tmp.name
-            
-            yield event.image_result(tmp_path)
-        finally:
-            if tmp_path and os.path.exists(tmp_path):
-                os.remove(tmp_path)
+            # Workaround for AstrBot image sending: save to a temporary file
+            tmp_path = ""
+            try:
+                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                    tmp.write(image_bytes)
+                    tmp_path = tmp.name
+                
+                yield event.image_result(tmp_path)
+            finally:
+                if tmp_path and os.path.exists(tmp_path):
+                    os.remove(tmp_path)
