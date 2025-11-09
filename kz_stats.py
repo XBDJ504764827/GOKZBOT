@@ -65,6 +65,56 @@ async def get_kzgo_stats(steam_id: str, mode: str) -> dict | None:
         return None
 
 
+def get_vnl_level(points: int) -> str:
+    """根据积分返回VNL等级"""
+    if points >= 600000:
+        return "Legend"
+    elif points >= 400000:
+        return "Master"
+    elif points >= 300000:
+        return "Pro"
+    elif points >= 250000:
+        return "Semipro"
+    elif points >= 200000:
+        return "Expert+"
+    elif points >= 180000:
+        return "Expert"
+    elif points >= 160000:
+        return "Expert-"
+    elif points >= 140000:
+        return "Skilled+"
+    elif points >= 120000:
+        return "Skilled"
+    elif points >= 100000:
+        return "Skilled-"
+    elif points >= 80000:
+        return "Regular+"
+    elif points >= 70000:
+        return "Regular"
+    elif points >= 60000:
+        return "Regular-"
+    elif points >= 40000:
+        return "Casual+"
+    elif points >= 30000:
+        return "Casual"
+    elif points >= 20000:
+        return "Casual-"
+    elif points >= 10000:
+        return "Amateur+"
+    elif points >= 5000:
+        return "Amateur"
+    elif points >= 2000:
+        return "Amateur-"
+    elif points >= 1000:
+        return "Beginner+"
+    elif points >= 500:
+        return "Beginner"
+    elif points >= 1:
+        return "Beginner-"
+    else:
+        return "New"
+
+
 async def get_vnl_stats(steam_id64: str) -> dict | None:
     """Fetches player stats for vnl mode from kztimerglobal and vnl.kz APIs."""
     records_url = f"https://kztimerglobal.com/api/v2.0/records/top?steamid64={steam_id64}&stage=0&modes_list_string=kz_vanilla&limit=10000&has_teleports=true"
@@ -99,24 +149,51 @@ async def get_vnl_stats(steam_id64: str) -> dict | None:
             except (aiohttp.ClientError, Exception):
                 pass  # Use N/A if ranking fetch fails
 
-            # Fetch profile for name and avatar
+            # Fetch profile for name and avatar - 使用 Steam API 作为备选
             stats = {}
+            player_name = "N/A"
+            avatar_url = ""
+            
+            # 首先尝试从 vnl.kz 获取
             try:
                 async with session.get(profile_url) as profile_response:
                     if profile_response.status == 200:
                         profile_data = await profile_response.json()
                         if profile_data and len(profile_data) > 0:
-                            stats["name"] = profile_data[0].get("name", "N/A")
-                            stats["avatar_url"] = profile_data[0].get("avatarfull", "")
-                        else:
-                            stats["name"] = records[0].get("player_name", "N/A") if records else "N/A"
-                            stats["avatar_url"] = ""
-                    else:
-                        stats["name"] = records[0].get("player_name", "N/A") if records else "N/A"
-                        stats["avatar_url"] = ""
+                            player_name = profile_data[0].get("name", "N/A")
+                            avatar_url = profile_data[0].get("avatarfull", "")
             except (aiohttp.ClientError, Exception):
-                stats["name"] = records[0].get("player_name", "N/A") if records else "N/A"
-                stats["avatar_url"] = ""
+                pass
+            
+            # 如果 vnl.kz 没有获取到，尝试从 records 中获取
+            if player_name == "N/A" and records:
+                player_name = records[0].get("player_name", "N/A")
+            
+            # 如果还是没有，尝试从 Steam API 获取
+            if player_name == "N/A" or not avatar_url:
+                try:
+                    steam_api_url = f"https://steamcommunity.com/profiles/{steam_id64}?xml=1"
+                    async with session.get(steam_api_url) as steam_response:
+                        if steam_response.status == 200:
+                            from lxml import etree
+                            xml_data = await steam_response.text()
+                            root = etree.fromstring(xml_data.encode())
+                            if player_name == "N/A":
+                                name_elem = root.find(".//steamID")
+                                if name_elem is not None and name_elem.text:
+                                    player_name = name_elem.text
+                            if not avatar_url:
+                                avatar_elem = root.find(".//avatarFull")
+                                if avatar_elem is not None and avatar_elem.text:
+                                    avatar_url = avatar_elem.text
+                except Exception:
+                    pass
+            
+            stats["name"] = player_name
+            stats["avatar_url"] = avatar_url
+
+            # Calculate level
+            level = get_vnl_level(total_points)
 
             # Assemble stats dictionary
             stats.update({
@@ -124,6 +201,7 @@ async def get_vnl_stats(steam_id64: str) -> dict | None:
                 "mode": "vnl",
                 "points": total_points,
                 "rank": rank,
+                "level": level,
                 "finishes": finishes,
                 "wrs": "N/A",
                 "map_ids": map_ids
@@ -221,12 +299,18 @@ async def create_stats_image(stats: dict) -> bytes | None:
         # Draw rank and points
         rank_value = stats.get('rank', 'N/A')
         points_value = stats.get('points', 'N/A')
+        level_value = stats.get('level', '')
         
         rank_text = f"Rank: #{rank_value}" if rank_value != "N/A" else "Rank: N/A"
         points_text = f"Points: {points_value}"
         
         draw.text((100, 70), rank_text, font=font_regular, fill=highlight_color)
         draw.text((100, 92), points_text, font=font_regular, fill=text_color)
+        
+        # Draw level for VNL mode
+        if level_value:
+            level_text = f"Level: {level_value}"
+            draw.text((280, 70), level_text, font=font_regular, fill=mode_color)
         
         # Draw separator line
         draw.line([(15, 120), (width - 15, 120)], fill=secondary_color, width=1)
@@ -248,13 +332,13 @@ async def create_stats_image(stats: dict) -> bytes | None:
         elif stats["source"] == "vnl.kz":
             # Display vnl stats
             finishes = stats.get('finishes', 'N/A')
-            draw.text((15, y_offset), "Finishes:", font=font_regular, fill=secondary_color)
+            draw.text((15, y_offset), "已完成地图:", font=font_regular, fill=secondary_color)
             draw.text((200, y_offset), str(finishes), font=font_regular, fill=text_color)
             
             # Display tier distribution
             tier_counts = stats.get("tier_counts")
             if tier_counts:
-                draw.text((15, y_offset + 30), "Tier Distribution:", font=font_regular, fill=secondary_color)
+                draw.text((15, y_offset + 30), "等级地图分布:", font=font_regular, fill=secondary_color)
                 
                 tier_texts = [f"T{tier}: {count}" for tier, count in tier_counts.items()]
                 
@@ -263,7 +347,7 @@ async def create_stats_image(stats: dict) -> bytes | None:
                     row_text = "  ".join(tier_texts[row_idx:row_idx + 6])
                     draw.text((15, y_offset + 55 + row_idx // 6 * 20), row_text, font=font_small, fill=text_color)
             else:
-                draw.text((15, y_offset + 30), "No tier data available", font=font_small, fill=secondary_color)
+                draw.text((15, y_offset + 30), "暂无等级数据", font=font_small, fill=secondary_color)
 
         # Add footer
         footer_text = f"Data from {stats['source']}"
