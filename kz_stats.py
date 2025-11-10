@@ -121,27 +121,40 @@ def get_vnl_level(points: int) -> str:
 
 
 async def get_vnl_stats(steam_id64: str) -> dict | None:
-    """Fetches player stats for vnl mode from kztimerglobal and vnl.kz APIs."""
+    """Fetches player stats for vnl mode from kztimerglobal and vnl.kz APIs.
+
+    从 KZTimer Global API 获取玩家完成的所有地图记录，
+    每条记录包含 map_id (地图ID) 和 points (该地图获得的分数)。
+    """
     records_url = f"https://kztimerglobal.com/api/v2.0/records/top?steamid64={steam_id64}&stage=0&modes_list_string=kz_vanilla&limit=10000&has_teleports=true"
     profile_url = f"https://vnl.kz/api/v1/profiles?steamids={steam_id64}"
     ranking_url = f"https://kztimerglobal.com/api/v2.0/rankings?steamid64={steam_id64}&mode=kz_vanilla&has_teleports=true"
-    
+
     try:
         timeout = aiohttp.ClientTimeout(total=15)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             # Fetch records for points and map_ids
             records = []
             try:
+                print(f"[DEBUG] 正在从 KZTimer Global API 获取玩家记录...")
                 async with session.get(records_url) as response:
                     if response.status == 200:
                         records = await response.json()
-            except (aiohttp.ClientError, Exception):
+                        print(f"[DEBUG] 成功获取 {len(records)} 条记录")
+                    else:
+                        print(f"[DEBUG] API返回状态码: {response.status}")
+            except (aiohttp.ClientError, Exception) as e:
+                print(f"[ERROR] 获取记录失败: {e}")
                 pass  # Continue with empty records
-            
+
             # Calculate total points and finishes from records
+            # 每条记录的 points 字段是该地图的分数，总分是所有地图分数之和
             total_points = sum(record.get('points', 0) for record in records)
             finishes = len(records)
+
+            # 提取所有地图ID，这些ID将用于在数据库中查询地图等级
             map_ids = [record.get('map_id') for record in records if record.get('map_id') is not None]
+            print(f"[DEBUG] 总分: {total_points}, 完成地图数: {finishes}, 地图ID数量: {len(map_ids)}")
 
             # Fetch ranking data
             rank = "N/A"

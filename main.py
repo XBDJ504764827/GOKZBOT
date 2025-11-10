@@ -317,17 +317,36 @@ class GOKZPlugin(Star):
                     stats = await get_vnl_stats(steam_id64)
                     if stats:
                         map_ids = stats.get("map_ids", [])
+                        print(f"[DEBUG] 获取到 {len(map_ids)} 个地图ID")
+
                         if map_ids:
                             try:
-                                # Query the database for tiers (within the same db_session context)
-                                tiers = db_session.query(VnlMapTier.tptier).filter(VnlMapTier.id.in_(map_ids)).all()
-                                if tiers:
-                                    tier_counts = Counter(tier[0] for tier in tiers)
+                                # 从数据库查询地图等级
+                                # vnlmaptier表: id字段对应map_id, tptier字段是地图等级
+                                tier_results = db_session.query(
+                                    VnlMapTier.id,
+                                    VnlMapTier.tptier
+                                ).filter(VnlMapTier.id.in_(map_ids)).all()
+
+                                print(f"[DEBUG] 从数据库匹配到 {len(tier_results)} 个地图的等级信息")
+
+                                if tier_results:
+                                    # 统计每个tier的数量
+                                    tier_counts = Counter(tier[1] for tier in tier_results)
                                     stats["tier_counts"] = dict(sorted(tier_counts.items()))
+                                    print(f"[DEBUG] Tier统计: {stats['tier_counts']}")
+                                else:
+                                    print("[DEBUG] 数据库中没有找到匹配的地图等级")
+                                    stats["tier_counts"] = {}
                             except Exception as e:
                                 # 如果tier查询失败，继续但不显示tier数据
-                                print(f"查询tier数据失败: {e}")
+                                print(f"[ERROR] 查询tier数据失败: {e}")
+                                import traceback
+                                traceback.print_exc()
                                 stats["tier_counts"] = {}
+                        else:
+                            print("[DEBUG] 玩家没有完成任何地图")
+                            stats["tier_counts"] = {}
                 else:
                     valid_modes = ["kzt", "skz", "vnl"]
                     yield event.plain_result(f"无效的模式。可用模式: {', '.join(valid_modes)}")
