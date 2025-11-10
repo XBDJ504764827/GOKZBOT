@@ -309,42 +309,53 @@ class GOKZPlugin(Star):
             # --- Data Fetching ---
             stats = None
             yield event.plain_result(f"正在查询 {mode.upper()} 模式数据...")
-            if mode in ["kzt", "skz"]:
-                stats = await get_kzgo_stats(steam_id, mode)
-            elif mode == "vnl":
-                stats = await get_vnl_stats(steam_id64)
-                if stats:
-                    map_ids = stats.get("map_ids", [])
-                    if map_ids:
-                        # Query the database for tiers (within the same db_session context)
-                        tiers = db_session.query(VnlMapTier.tptier).filter(VnlMapTier.id.in_(map_ids)).all()
-                        if tiers:
-                            tier_counts = Counter(tier[0] for tier in tiers)
-                            stats["tier_counts"] = dict(sorted(tier_counts.items()))
-            else:
-                valid_modes = ["kzt", "skz", "vnl"]
-                yield event.plain_result(f"无效的模式。可用模式: {', '.join(valid_modes)}")
-                return
-                
-            if not stats:
-                yield event.plain_result("未能查询到玩家数据，请检查绑定的 SteamID 或稍后再试。")
-                return
-                
-            # --- Image Generation ---
-            image_bytes = await create_stats_image(stats)
-            
-            if not image_bytes:
-                yield event.plain_result("生成玩家数据图时出错。")
-                return
 
-            # Workaround for AstrBot image sending: save to a temporary file
-            tmp_path = ""
             try:
-                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                    tmp.write(image_bytes)
-                    tmp_path = tmp.name
-                
-                yield event.image_result(tmp_path)
-            finally:
-                if tmp_path and os.path.exists(tmp_path):
-                    os.remove(tmp_path)
+                if mode in ["kzt", "skz"]:
+                    stats = await get_kzgo_stats(steam_id, mode)
+                elif mode == "vnl":
+                    stats = await get_vnl_stats(steam_id64)
+                    if stats:
+                        map_ids = stats.get("map_ids", [])
+                        if map_ids:
+                            try:
+                                # Query the database for tiers (within the same db_session context)
+                                tiers = db_session.query(VnlMapTier.tptier).filter(VnlMapTier.id.in_(map_ids)).all()
+                                if tiers:
+                                    tier_counts = Counter(tier[0] for tier in tiers)
+                                    stats["tier_counts"] = dict(sorted(tier_counts.items()))
+                            except Exception as e:
+                                # 如果tier查询失败，继续但不显示tier数据
+                                print(f"查询tier数据失败: {e}")
+                                stats["tier_counts"] = {}
+                else:
+                    valid_modes = ["kzt", "skz", "vnl"]
+                    yield event.plain_result(f"无效的模式。可用模式: {', '.join(valid_modes)}")
+                    return
+
+                if not stats:
+                    yield event.plain_result("未能查询到玩家数据，请检查绑定的 SteamID 或稍后再试。")
+                    return
+
+                # --- Image Generation ---
+                image_bytes = await create_stats_image(stats)
+
+                if not image_bytes:
+                    yield event.plain_result("生成玩家数据图时出错。")
+                    return
+
+                # Workaround for AstrBot image sending: save to a temporary file
+                tmp_path = ""
+                try:
+                    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                        tmp.write(image_bytes)
+                        tmp_path = tmp.name
+
+                    yield event.image_result(tmp_path)
+                finally:
+                    if tmp_path and os.path.exists(tmp_path):
+                        os.remove(tmp_path)
+
+            except Exception as e:
+                print(f"查询数据时发生错误: {e}")
+                yield event.plain_result(f"查询失败，请稍后再试。错误信息: {str(e)}")

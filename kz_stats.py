@@ -276,12 +276,25 @@ async def _download_font() -> bool:
 async def create_stats_image(stats: dict) -> bytes | None:
     """Creates an image from the player's stats."""
     try:
-        # Create a background with better dimensions
-        width, height = 450, 300
+        # 根据是否有tier数据动态调整图片高度
+        tier_counts = stats.get("tier_counts", {})
+        has_tier_data = bool(tier_counts)
+
+        # 计算需要的高度
+        base_height = 200  # 基础高度（头部信息）
+        tier_height = 0
+        if has_tier_data:
+            # 每个tier一行，每行30像素
+            tier_height = len(tier_counts) * 30 + 40  # 40是标题和间距
+
+        width = 500
+        height = base_height + tier_height
+
+        # 背景色
         bg_color = (24, 25, 28)
         image = Image.new("RGB", (width, height), bg_color)
         draw = ImageDraw.Draw(image)
-        
+
         # Load font
         try:
             font_path = _find_font()
@@ -289,22 +302,26 @@ async def create_stats_image(stats: dict) -> bytes | None:
             if font_path == "default":
                 await _download_font()
                 font_path = _find_font()
-            
+
             if font_path == "default":
                 font_regular = ImageFont.load_default()
                 font_bold = ImageFont.load_default()
+                font_large = ImageFont.load_default()
                 font_small = ImageFont.load_default()
             else:
-                font_regular = ImageFont.truetype(font_path, 14)
-                font_bold = ImageFont.truetype(font_path, 20)
-                font_small = ImageFont.truetype(font_path, 12)
+                font_regular = ImageFont.truetype(font_path, 16)
+                font_bold = ImageFont.truetype(font_path, 22)
+                font_large = ImageFont.truetype(font_path, 28)
+                font_small = ImageFont.truetype(font_path, 14)
         except (IOError, OSError):
             font_regular = ImageFont.load_default()
             font_bold = ImageFont.load_default()
+            font_large = ImageFont.load_default()
             font_small = ImageFont.load_default()
 
         # Fetch and add avatar with rounded corners
         avatar_url = stats.get("avatar_url")
+        avatar_size = 80
         if avatar_url:
             try:
                 timeout = aiohttp.ClientTimeout(total=5)
@@ -313,91 +330,135 @@ async def create_stats_image(stats: dict) -> bytes | None:
                         if response.status == 200:
                             avatar_data = await response.read()
                             avatar_image = Image.open(io.BytesIO(avatar_data))
-                            avatar_image = avatar_image.resize((70, 70))
-                            
+                            avatar_image = avatar_image.resize((avatar_size, avatar_size))
+
                             # Create rounded corners mask
-                            mask = Image.new('L', (70, 70), 0)
+                            mask = Image.new('L', (avatar_size, avatar_size), 0)
                             mask_draw = ImageDraw.Draw(mask)
-                            mask_draw.ellipse((0, 0, 70, 70), fill=255)
-                            
+                            mask_draw.ellipse((0, 0, avatar_size, avatar_size), fill=255)
+
                             # Apply mask and paste
-                            output = Image.new('RGBA', (70, 70), (0, 0, 0, 0))
+                            output = Image.new('RGBA', (avatar_size, avatar_size), (0, 0, 0, 0))
                             output.paste(avatar_image, (0, 0))
                             output.putalpha(mask)
-                            
-                            image.paste(output, (15, 15), output)
+
+                            image.paste(output, (20, 20), output)
             except Exception:
                 pass  # Skip avatar if fetch fails
 
         # Colors
         text_color = (255, 255, 255)
-        highlight_color = (153, 102, 255)
+        highlight_color = (100, 200, 255)
+        level_color = (255, 215, 0)  # 金色
         secondary_color = (180, 180, 180)
-        mode_color = (100, 200, 255)
+        tier_bar_color = (60, 60, 80)
+        tier_text_color = (200, 200, 220)
 
-        # Draw player name and mode badge
+        # Draw player name (大字体，醒目)
         player_name = stats.get("name", "N/A")
-        draw.text((100, 20), player_name, font=font_bold, fill=text_color)
-        
-        mode_text = f"[{stats.get('mode', 'N/A').upper()}]"
-        draw.text((100, 50), mode_text, font=font_small, fill=mode_color)
-        
+        name_x = 120
+        draw.text((name_x, 25), player_name, font=font_large, fill=text_color)
+
+        # Draw level (等级，金色显示)
+        level_value = stats.get('level', '')
+        if level_value:
+            level_text = f"[{level_value}]"
+            draw.text((name_x, 60), level_text, font=font_bold, fill=level_color)
+
         # Draw rank and points
         rank_value = stats.get('rank', 'N/A')
         points_value = stats.get('points', 'N/A')
-        level_value = stats.get('level', '')
-        
-        rank_text = f"Rank: #{rank_value}" if rank_value != "N/A" else "Rank: N/A"
-        points_text = f"Points: {points_value}"
-        
-        draw.text((100, 70), rank_text, font=font_regular, fill=highlight_color)
-        draw.text((100, 92), points_text, font=font_regular, fill=text_color)
-        
-        # Draw level for VNL mode
-        if level_value:
-            level_text = f"Level: {level_value}"
-            draw.text((280, 70), level_text, font=font_regular, fill=mode_color)
-        
+
+        rank_text = f"排名: #{rank_value}" if rank_value != "N/A" else "排名: N/A"
+        points_text = f"总分: {points_value:,}" if isinstance(points_value, int) else f"总分: {points_value}"
+
+        draw.text((name_x, 95), rank_text, font=font_regular, fill=highlight_color)
+        draw.text((name_x, 120), points_text, font=font_regular, fill=text_color)
+
+        # Draw mode badge (右上角)
+        mode_text = f"{stats.get('mode', 'N/A').upper()}"
+        draw.text((width - 80, 25), mode_text, font=font_bold, fill=highlight_color)
+
         # Draw separator line
-        draw.line([(15, 120), (width - 15, 120)], fill=secondary_color, width=1)
-        
+        separator_y = 160
+        draw.line([(20, separator_y), (width - 20, separator_y)], fill=secondary_color, width=2)
+
         # Draw stats based on source
-        y_offset = 135
+        y_offset = separator_y + 20
+
         if stats["source"] == "kzgo.eu":
             # Display kzgo.eu stats
             stats_to_display = [
-                ("Maps Completed", stats.get('maps_completed', 'N/A')),
-                ("World Records", stats.get('world_records', 'N/A')),
-                ("Average", stats.get('average', 'N/A')),
+                ("完成地图", stats.get('maps_completed', 'N/A')),
+                ("世界纪录", stats.get('world_records', 'N/A')),
+                ("平均分", stats.get('average', 'N/A')),
             ]
-            
+
             for i, (label, value) in enumerate(stats_to_display):
-                draw.text((15, y_offset + i * 25), f"{label}:", font=font_regular, fill=secondary_color)
-                draw.text((200, y_offset + i * 25), str(value), font=font_regular, fill=text_color)
-                
+                draw.text((20, y_offset + i * 30), f"{label}:", font=font_regular, fill=secondary_color)
+                draw.text((200, y_offset + i * 30), str(value), font=font_regular, fill=text_color)
+
         elif stats["source"] == "vnl.kz":
             # Display vnl stats
             finishes = stats.get('finishes', 'N/A')
-            draw.text((15, y_offset), "已完成地图:", font=font_regular, fill=secondary_color)
-            draw.text((200, y_offset), str(finishes), font=font_regular, fill=text_color)
-            
-            # Display tier distribution
-            tier_counts = stats.get("tier_counts")
+            draw.text((20, y_offset), f"完成地图总数: {finishes}", font=font_bold, fill=text_color)
+
+            # Display tier distribution (每个tier一行，带进度条样式)
             if tier_counts:
-                draw.text((15, y_offset + 30), "等级地图分布:", font=font_regular, fill=secondary_color)
-                
-                tier_texts = [f"T{tier}: {count}" for tier, count in tier_counts.items()]
-                
-                # Display tiers in rows of 6
-                for row_idx in range(0, len(tier_texts), 6):
-                    row_text = "  ".join(tier_texts[row_idx:row_idx + 6])
-                    draw.text((15, y_offset + 55 + row_idx // 6 * 20), row_text, font=font_small, fill=text_color)
+                y_offset += 40
+                draw.text((20, y_offset), "各等级地图完成情况:", font=font_regular, fill=secondary_color)
+                y_offset += 30
+
+                # 找出最大值用于计算进度条长度
+                max_count = max(tier_counts.values()) if tier_counts else 1
+                bar_max_width = 350
+
+                for tier, count in sorted(tier_counts.items()):
+                    # 绘制tier标签
+                    tier_label = f"Tier {tier}"
+                    draw.text((20, y_offset), tier_label, font=font_regular, fill=tier_text_color)
+
+                    # 绘制进度条背景
+                    bar_x = 100
+                    bar_y = y_offset + 2
+                    bar_height = 18
+                    draw.rectangle(
+                        [(bar_x, bar_y), (bar_x + bar_max_width, bar_y + bar_height)],
+                        fill=tier_bar_color,
+                        outline=secondary_color
+                    )
+
+                    # 绘制进度条填充
+                    if max_count > 0:
+                        bar_width = int((count / max_count) * bar_max_width)
+                        if bar_width > 0:
+                            # 根据tier等级使用不同颜色
+                            if tier <= 2:
+                                fill_color = (100, 200, 100)  # 绿色 - 简单
+                            elif tier <= 4:
+                                fill_color = (100, 150, 255)  # 蓝色 - 中等
+                            elif tier <= 6:
+                                fill_color = (255, 200, 100)  # 橙色 - 困难
+                            else:
+                                fill_color = (255, 100, 100)  # 红色 - 极难
+
+                            draw.rectangle(
+                                [(bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height)],
+                                fill=fill_color
+                            )
+
+                    # 绘制数量文本
+                    count_text = f"{count}"
+                    draw.text((bar_x + bar_max_width + 10, y_offset), count_text, font=font_regular, fill=text_color)
+
+                    y_offset += 30
             else:
-                draw.text((15, y_offset + 30), "暂无等级数据", font=font_small, fill=secondary_color)
+                y_offset += 30
+                draw.text((20, y_offset), "暂无等级数据", font=font_small, fill=secondary_color)
 
         # Add footer
-        footer_text = f"Data from {stats['source']}"
-        draw.text((15, height - 25), footer_text, font=font_small, fill=secondary_color)
+        footer_text = f"数据来源: {stats['source']}"
+        draw.text((20, height - 25), footer_text, font=font_small, fill=secondary_color)
 
         # Save image to a bytes buffer
         img_byte_arr = io.BytesIO()
